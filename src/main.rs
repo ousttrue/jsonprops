@@ -8,8 +8,16 @@ enum JsonValue {
     Int(i32),
 }
 
+struct JsonParser<'a> {
+    src: &'a str,
+    segments: Vec<JsonSegment<'a>>,
+}
+
 struct JsonSegment<'a> {
-    segment: &'a str,
+    index: usize,
+    offset: usize,
+    bytes: usize,
+    data: Box<JsonParser<'a>>,
 }
 
 fn is_space(c: char) -> bool {
@@ -32,29 +40,33 @@ fn skip_space(src: &str) -> &str {
     src
 }
 
-impl<'a> JsonSegment<'a> {
-    fn value(&self) -> Option<JsonValue> {
-        for (i, c) in self.segment.char_indices() {
-            return match c {
-                '0' => Some(JsonValue::Int(0)),
-                _ => None,
-            };
-        }
+impl<'a> JsonParser<'a> {
+    // fn value(&self) -> Option<JsonValue> {
+    //     for (i, c) in self.segment.char_indices() {
+    //         return match c {
+    //             '0' => Some(JsonValue::Int(0)),
+    //             _ => None,
+    //         };
+    //     }
 
-        None
-    }
+    //     None
+    // }
 
-    fn parse_next(src: &str) -> (Option<JsonSegment>, usize) {
-        for (i, c) in src.char_indices() {
+    ///
+    /// parse and return root value
+    /// 
+    fn parse(src: &'a str) -> Option<JsonSegment<'a>> {
+        let parser = JsonParser {
+            src,
+            segments: Vec::new(),
+        };
+
+        for (i, c) in (&parser.src).char_indices() {
             if is_space(c) {
                 continue;
             }
-
-            let segment = &src[i..];
-            return (Some(JsonSegment { segment }), i);
         }
-
-        (None, 0)
+        None
     }
 }
 
@@ -71,10 +83,10 @@ fn test_util() {
 
 #[test]
 fn parse_int() {
-    assert_eq!(
-        JsonValue::Int(1),
-        JsonSegment::parse_next("1").0.unwrap().value().unwrap()
-    );
+    // assert_eq!(
+    //     JsonValue::Int(1),
+    //     JsonParser::parse("1").value()
+    // );
 }
 
 fn main() {
