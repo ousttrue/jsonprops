@@ -1,94 +1,109 @@
-#[derive(Debug, PartialEq, Eq)]
-enum JsonValue {
-    Null(),
-    True(),
-    False(),
-    Object(),
-    Array(),
-    Int(i32),
+#[derive(Debug, Clone)]
+enum ParseError {
+    Eof(),
+    Position(usize),
 }
 
-struct JsonParser<'a> {
-    src: &'a str,
-    segments: Vec<JsonSegment<'a>>,
-}
-
-struct JsonSegment<'a> {
-    index: usize,
-    offset: usize,
-    bytes: usize,
-    data: Box<JsonParser<'a>>,
-}
-
-fn is_space(c: char) -> bool {
-    match (c) {
-        ' ' => true,
-        '\r' => true,
-        '\n' => true,
-        '\t' => true,
-        _ => false,
+fn get_null_token(
+    it: &mut std::str::CharIndices,
+    start: usize,
+) -> Result<(usize, usize), ParseError> {
+    match it.next() {
+        Some((_, 'u')) => match it.next() {
+            Some((_, 'l')) => match it.next() {
+                Some((i, 'l')) => Ok((start, i)),
+                Some((i, _)) => Err(ParseError::Position(i)),
+                None => Err(ParseError::Eof()),
+            },
+            Some((i, _)) => Err(ParseError::Position(i)),
+            None => Err(ParseError::Eof()),
+        },
+        Some((i, _)) => Err(ParseError::Position(i)),
+        None => Err(ParseError::Eof()),
     }
 }
 
-fn skip_space(src: &str) -> &str {
-    for (i, c) in src.chars().enumerate() {
-        if !is_space(c) {
-            return &src[i..];
+fn get_true_token(
+    it: &mut std::str::CharIndices,
+    start: usize,
+) -> Result<(usize, usize), ParseError> {
+    match it.next() {
+        Some((_, 'r')) => match it.next() {
+            Some((_, 'u')) => match it.next() {
+                Some((i, 'e')) => Ok((start, i)),
+                Some((i, _)) => Err(ParseError::Position(i)),
+                None => Err(ParseError::Eof()),
+            },
+            Some((i, _)) => Err(ParseError::Position(i)),
+            None => Err(ParseError::Eof()),
+        },
+        Some((i, _)) => Err(ParseError::Position(i)),
+        None => Err(ParseError::Eof()),
+    }
+}
+
+fn get_false_token(
+    it: &mut std::str::CharIndices,
+    start: usize,
+) -> Result<(usize, usize), ParseError> {
+    match it.next() {
+        Some((_, 'a')) => match it.next() {
+            Some((_, 'l')) => match it.next() {
+                Some((_, 's')) => match it.next() {
+                    Some((i, 'e')) => Ok((start, i)),
+                    Some((i, _)) => Err(ParseError::Position(i)),
+                    None => Err(ParseError::Eof()),
+                },
+                Some((i, _)) => Err(ParseError::Position(i)),
+                None => Err(ParseError::Eof()),
+            },
+            Some((i, _)) => Err(ParseError::Position(i)),
+            None => Err(ParseError::Eof()),
+        },
+        Some((i, _)) => Err(ParseError::Position(i)),
+        None => Err(ParseError::Eof()),
+    }
+}
+
+fn get_number_token(it: &mut std::str::CharIndices, start: usize) -> (usize, usize) {
+    let mut current = start;
+    while let Some((i, c)) = it.next() {
+        match c {
+            '0'..='9' => current = i,
+            _ => break,
         }
     }
-
-    src
+    (start, current)
 }
 
-impl<'a> JsonParser<'a> {
-    // fn value(&self) -> Option<JsonValue> {
-    //     for (i, c) in self.segment.char_indices() {
-    //         return match c {
-    //             '0' => Some(JsonValue::Int(0)),
-    //             _ => None,
-    //         };
-    //     }
+fn process(src: &str) {
+    println!("#### '{}' ####", src);
+    let mut it = src.char_indices();
 
-    //     None
-    // }
+    while let Some((i, c)) = it.next() {
+        println!("{}: {}", i, c);
+        if c.is_whitespace() {
+            continue;
+        }
 
-    ///
-    /// parse and return root value
-    /// 
-    fn parse(src: &'a str) -> Option<JsonSegment<'a>> {
-        let parser = JsonParser {
-            src,
-            segments: Vec::new(),
+        let (s, e) = match c {
+            'n' => get_null_token(&mut it, i).unwrap(),
+            't' => get_true_token(&mut it, i).unwrap(),
+            'f' => get_false_token(&mut it, i).unwrap(),
+            '0'..='9' => get_number_token(&mut it, i),
+            _ => panic!(),
         };
 
-        for (i, c) in (&parser.src).char_indices() {
-            if is_space(c) {
-                continue;
-            }
-        }
-        None
+        println!("number: {}..{} => '{}'", s, e, &src[s..e + 1]);
     }
-}
 
-#[test]
-fn test_util() {
-    assert_eq!(true, is_space(' '));
-    assert_eq!(true, is_space('\r'));
-    assert_eq!(false, is_space('🍎'));
-    assert_eq!(false, is_space('字'));
-
-    assert_eq!("1", skip_space(" 1"));
-    assert_eq!("1 ", skip_space(" 1 "));
-}
-
-#[test]
-fn parse_int() {
-    // assert_eq!(
-    //     JsonValue::Int(1),
-    //     JsonParser::parse("1").value()
-    // );
+    println!();
 }
 
 fn main() {
-    println!("Hello, world!");
+    process(" 1");
+    process("2 ");
+    process(" 345");
+    process(" null 3 null");
+    process(" true false 123 null");
 }
