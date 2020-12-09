@@ -1,52 +1,60 @@
+enum JsonToken {
+    Value(usize, usize),
+    Comma(usize, usize),
+    CloseArray(usize, usize),
+    CloseObject(usize, usize),
+}
+
 #[derive(Debug, Clone)]
 enum ParseError {
     Eof(),
-    Position(usize),
+    Unknown(usize, char),
 }
-type ParseResult = Result<(usize, usize), ParseError>;
+type ParseResult = Result<JsonToken, ParseError>;
 
-fn get_char(it: &mut std::str::CharIndices, expected: char) -> ParseResult {
+use std::fmt;
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::Eof() => write!(f, "eof"),
+            ParseError::Unknown(i, c) => write!(f, "'{}' at {} is unknown", c, i),
+        }
+    }
+}
+
+fn get_char(it: &mut std::str::CharIndices, expected: char) -> Result<usize, ParseError> {
     match it.next() {
         Some((i, c)) => {
             if c == expected {
-                Ok((i, i))
+                Ok(i)
             } else {
-                Err(ParseError::Position(i))
+                Err(ParseError::Unknown(i, c))
             }
         }
         None => Err(ParseError::Eof()),
     }
 }
 
-fn get_null_token(
-    it: &mut std::str::CharIndices,
-    start: usize,
-) -> Result<(usize, usize), ParseError> {
+fn get_null_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
     let _ = get_char(it, 'u')?;
     let _ = get_char(it, 'l')?;
-    let (_, end) = get_char(it, 'l')?;
-    Ok((start, end))
+    let end = get_char(it, 'l')?;
+    Ok(JsonToken::Value(start, end))
 }
 
-fn get_true_token(
-    it: &mut std::str::CharIndices,
-    start: usize,
-) -> Result<(usize, usize), ParseError> {
+fn get_true_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
     let _ = get_char(it, 'r')?;
     let _ = get_char(it, 'u')?;
-    let (_, end) = get_char(it, 'e')?;
-    Ok((start, end))
+    let end = get_char(it, 'e')?;
+    Ok(JsonToken::Value(start, end))
 }
 
-fn get_false_token(
-    it: &mut std::str::CharIndices,
-    start: usize,
-) -> Result<(usize, usize), ParseError> {
+fn get_false_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
     let _ = get_char(it, 'a')?;
     let _ = get_char(it, 'l')?;
     let _ = get_char(it, 's')?;
-    let (_, end) = get_char(it, 'e')?;
-    Ok((start, end))
+    let end = get_char(it, 'e')?;
+    Ok(JsonToken::Value(start, end))
 }
 
 fn is_digit(c: char) -> bool {
@@ -91,52 +99,106 @@ fn get_number_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult
                     break;
                 }
             } else {
-                return Err(ParseError::Position(i));
+                return Err(ParseError::Unknown(i, c));
             }
         } else {
             return Err(ParseError::Eof());
         }
     }
 
-    Ok((start, digit))
+    Ok(JsonToken::Value(start, digit))
 }
 
 fn get_string_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
     while let Some((i, c)) = it.next() {
         if c == '"' {
-            return Ok((start, i));
+            return Ok(JsonToken::Value(start, i));
         }
     }
     Err(ParseError::Eof())
 }
 
-fn process(src: &str) {
-    println!("#### '{}' ####", src);
-    let mut it = src.char_indices();
+fn is_close_array(token: JsonToken) -> (bool, usize) {
+    match token {
+        JsonToken::CloseArray(_, e) => (true, e),
+        _ => (false, 0),
+    }
+}
 
+fn get_array_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
+    {
+        // value or close
+        match parse(it)? {
+            JsonToken::Value(_, _) => (),
+            JsonToken::CloseArray(_, e) => return Ok(JsonToken::Value(start, e)),
+            //
+            JsonToken::Comma(_, e) => return Err(ParseError::Unknown(e, ',')),
+            JsonToken::CloseObject(_, e) => return Err(ParseError::Unknown(e, '}')),
+        };
+    }
+
+    loop {
+        // camma or close
+        match parse(it)? {
+            JsonToken::Comma(_, _) => (),
+            JsonToken::CloseArray(_, e) => return Ok(JsonToken::Value(start, e)),
+            //
+            JsonToken::Value(_, e) => return Err(ParseError::Unknown(e, ' ')),
+            JsonToken::CloseObject(_, e) => return Err(ParseError::Unknown(e, '}')),
+        };
+
+        // must value
+        match parse(it)? {
+            JsonToken::Value(_, _) => (),
+            //
+            JsonToken::CloseArray(_, e) => return Err(ParseError::Unknown(e, ']')),
+            JsonToken::Comma(_, e) => return Err(ParseError::Unknown(e, ',')),
+            JsonToken::CloseObject(_, e) => return Err(ParseError::Unknown(e, '}')),
+        };
+    }
+}
+
+fn parse(it: &mut std::str::CharIndices) -> ParseResult {
     while let Some((i, c)) = it.next() {
-        // println!("{}: {}", i, c);
         if c.is_whitespace() {
             continue;
         }
 
-        let (s, e) = match c {
-            'n' => get_null_token(&mut it, i).unwrap(),
-            't' => get_true_token(&mut it, i).unwrap(),
-            'f' => get_false_token(&mut it, i).unwrap(),
-            '0'..='9' | '-' => get_number_token(&mut it, i).unwrap(),
-            '"' => get_string_token(&mut it, i).unwrap(),
-            _ => panic!(),
+        return match c {
+            'n' => get_null_token(it, i),               // null
+            't' => get_true_token(it, i),               // true
+            'f' => get_false_token(it, i),              // false
+            '0'..='9' | '-' => get_number_token(it, i), // number
+            '"' => get_string_token(it, i),             // string
+            ',' => Ok(JsonToken::Comma(i, i)),          // comma
+            ']' => Ok(JsonToken::CloseArray(i, i)),     // close array
+            '[' => get_array_token(it, i),              // open array
+            _ => Err(ParseError::Unknown(i, c)),
         };
-
-        println!("number: {}..{} => '{}'", s, e, &src[s..e + 1]);
     }
+    Err(ParseError::Eof())
+}
 
-    println!();
+fn process(src: &str) {
+    let mut it = src.char_indices();
+
+    match parse(&mut it) {
+        Ok(JsonToken::Value(s, e)) => println!(
+            "number: '{}'[{}..{}] => '{}'",
+            src,
+            s,
+            e + 1,
+            &src[s..e + 1]
+        ),
+        Err(error) => println!("{} => {}", src, error),
+        _ => print!("unknown"),
+    }
 }
 
 fn main() {
     process(" 1");
     process("2 ");
-    process(r##" true false 123 null "hoge" 1.2 3e-5 1.7e+2"##);
+    process(r##" "hoge" "##);
+    process("[1, 2, 3]");
+    println!();
 }
