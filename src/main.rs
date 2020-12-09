@@ -1,3 +1,5 @@
+use std::fmt;
+
 struct PeekIt<'a> {
     it: std::str::CharIndices<'a>,
     last: Option<(usize, char)>,
@@ -17,26 +19,53 @@ impl<'a> PeekIt<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+enum JsonValue {
+    Null(),
+    True(),
+    False(),
+    Number(usize),
+    String(usize),
+    Array(usize),
+    Object(usize),
+}
+
+impl fmt::Display for JsonValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JsonValue::Null() => write!(f, "null"),
+            JsonValue::True() => write!(f, "true"),
+            JsonValue::False() => write!(f, "false"),
+            JsonValue::Number(len) => write!(f, "number[{}]", len),
+            JsonValue::String(len) => write!(f, "string[{}]", len),
+            JsonValue::Array(len) => write!(f, "array[{}]", len),
+            JsonValue::Object(len) => write!(f, "object[{}]", len),
+        }
+    }
+}
+
 enum JsonToken {
-    Value(usize, usize),
-    Comma(usize, usize),
-    CloseArray(usize, usize),
-    CloseObject(usize, usize),
+    Value(usize, JsonValue),
+    Comma(usize),
+    Colon(usize),
+    CloseArray(usize),
+    CloseObject(usize),
 }
 
 #[derive(Debug, Clone)]
 enum ParseError {
     Eof(),
     Unknown(usize, char),
+    Value(usize, JsonValue),
 }
 type ParseResult = Result<JsonToken, ParseError>;
 
-use std::fmt;
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ParseError::Eof() => write!(f, "eof"),
             ParseError::Unknown(i, c) => write!(f, "'{}' at {} is unknown", c, i),
+            ParseError::Value(i, value) => write!(f, "{} at {} is invalid", value, i),
         }
     }
 }
@@ -55,35 +84,35 @@ fn get_char(it: &mut PeekIt, expected: char) -> Result<usize, ParseError> {
 }
 
 fn get_null_token(it: &mut PeekIt, start: usize) -> ParseResult {
-    let _ = get_char(it, 'u')?;
+    get_char(it, 'u')?;
     it.next();
-    let _ = get_char(it, 'l')?;
+    get_char(it, 'l')?;
     it.next();
-    let end = get_char(it, 'l')?;
+    get_char(it, 'l')?;
     it.next();
-    Ok(JsonToken::Value(start, end))
+    Ok(JsonToken::Value(start, JsonValue::Null()))
 }
 
 fn get_true_token(it: &mut PeekIt, start: usize) -> ParseResult {
-    let _ = get_char(it, 'r')?;
+    get_char(it, 'r')?;
     it.next();
-    let _ = get_char(it, 'u')?;
+    get_char(it, 'u')?;
     it.next();
-    let end = get_char(it, 'e')?;
+    get_char(it, 'e')?;
     it.next();
-    Ok(JsonToken::Value(start, end))
+    Ok(JsonToken::Value(start, JsonValue::True()))
 }
 
 fn get_false_token(it: &mut PeekIt, start: usize) -> ParseResult {
-    let _ = get_char(it, 'a')?;
+    get_char(it, 'a')?;
     it.next();
-    let _ = get_char(it, 'l')?;
+    get_char(it, 'l')?;
     it.next();
-    let _ = get_char(it, 's')?;
+    get_char(it, 's')?;
     it.next();
-    let end = get_char(it, 'e')?;
+    get_char(it, 'e')?;
     it.next();
-    Ok(JsonToken::Value(start, end))
+    Ok(JsonToken::Value(start, JsonValue::False()))
 }
 
 fn is_digit(c: char) -> bool {
@@ -141,24 +170,20 @@ fn get_number_token(it: &mut PeekIt, start: usize) -> ParseResult {
         }
     }
 
-    Ok(JsonToken::Value(start, digit))
+    Ok(JsonToken::Value(
+        start,
+        JsonValue::Number(digit + 1 - start),
+    ))
 }
 
 fn get_string_token(it: &mut PeekIt, start: usize) -> ParseResult {
     while let Some((i, c)) = it.peek() {
         it.next();
         if c == '"' {
-            return Ok(JsonToken::Value(start, i));
+            return Ok(JsonToken::Value(start, JsonValue::String(i + 1 - start)));
         }
     }
     Err(ParseError::Eof())
-}
-
-fn is_close_array(token: JsonToken) -> (bool, usize) {
-    match token {
-        JsonToken::CloseArray(_, e) => (true, e),
-        _ => (false, 0),
-    }
 }
 
 fn get_array_token(it: &mut PeekIt, start: usize) -> ParseResult {
@@ -166,36 +191,94 @@ fn get_array_token(it: &mut PeekIt, start: usize) -> ParseResult {
         // value or close
         match parse(it)? {
             JsonToken::Value(_, _) => (),
-            JsonToken::CloseArray(_, e) => return Ok(JsonToken::Value(start, e)),
+            JsonToken::CloseArray(e) => {
+                return Ok(JsonToken::Value(start, JsonValue::Array(e + 1 - start)))
+            }
             //
-            JsonToken::Comma(_, e) => return Err(ParseError::Unknown(e, ',')),
-            JsonToken::CloseObject(_, e) => return Err(ParseError::Unknown(e, '}')),
+            JsonToken::Comma(e) => return Err(ParseError::Unknown(e, ',')),
+            JsonToken::Colon(e) => return Err(ParseError::Unknown(e, ',')),
+            JsonToken::CloseObject(e) => return Err(ParseError::Unknown(e, '}')),
         };
     }
 
     loop {
-        // camma or close
+        // comma or close
         match parse(it)? {
-            JsonToken::Comma(_, _) => (),
-            JsonToken::CloseArray(_, e) => return Ok(JsonToken::Value(start, e)),
+            JsonToken::Comma(_) => (),
+            JsonToken::CloseArray(e) => {
+                return Ok(JsonToken::Value(start, JsonValue::Array(e + 1 - start)))
+            }
             //
-            JsonToken::Value(_, e) => return Err(ParseError::Unknown(e, ' ')),
-            JsonToken::CloseObject(_, e) => return Err(ParseError::Unknown(e, '}')),
+            JsonToken::Value(e, v) => return Err(ParseError::Value(e, v)),
+            JsonToken::CloseObject(e) => return Err(ParseError::Unknown(e, '}')),
+            JsonToken::Colon(e) => return Err(ParseError::Unknown(e, ':')),
         };
 
         // must value
         match parse(it)? {
             JsonToken::Value(_, _) => (),
             //
-            JsonToken::CloseArray(_, e) => return Err(ParseError::Unknown(e, ']')),
-            JsonToken::Comma(_, e) => return Err(ParseError::Unknown(e, ',')),
-            JsonToken::CloseObject(_, e) => return Err(ParseError::Unknown(e, '}')),
+            JsonToken::CloseArray(e) => return Err(ParseError::Unknown(e, ']')),
+            JsonToken::Comma(e) => return Err(ParseError::Unknown(e, ',')),
+            JsonToken::CloseObject(e) => return Err(ParseError::Unknown(e, '}')),
+            JsonToken::Colon(e) => return Err(ParseError::Unknown(e, ':')),
         };
     }
 }
 
-fn parse(it: &mut PeekIt) -> ParseResult {
+fn colon_value(it: &mut PeekIt) -> ParseResult {
+    match parse(it)? {
+        JsonToken::Colon(_) => (),
+        //
+        JsonToken::CloseObject(e) => return Err(ParseError::Unknown(e, '}')),
+        JsonToken::Comma(e) => return Err(ParseError::Unknown(e, ',')),
+        JsonToken::Value(e, value) => return Err(ParseError::Value(e, value)),
+        JsonToken::CloseArray(e) => return Err(ParseError::Unknown(e, ']')),
+    }
 
+    match parse(it)? {
+        JsonToken::Value(e, value) => Ok(JsonToken::Value(e, value)),
+        //
+        JsonToken::Colon(e) => return Err(ParseError::Unknown(e, ':')),
+        JsonToken::CloseObject(e) => return Err(ParseError::Unknown(e, '}')),
+        JsonToken::Comma(e) => return Err(ParseError::Unknown(e, ',')),
+        JsonToken::CloseArray(e) => return Err(ParseError::Unknown(e, ']')),
+    }
+}
+
+fn get_object_token(it: &mut PeekIt, start: usize) -> ParseResult {
+    {
+        // key or close
+        match parse(it)? {
+            JsonToken::Value(_, _) => (),
+            JsonToken::CloseObject(e) => {
+                return Ok(JsonToken::Value(start, JsonValue::Object(e + 1 - start)))
+            }
+            //
+            JsonToken::Comma(e) => return Err(ParseError::Unknown(e, ',')),
+            JsonToken::Colon(e) => return Err(ParseError::Unknown(e, ':')),
+            JsonToken::CloseArray(e) => return Err(ParseError::Unknown(e, ']')),
+        };
+        colon_value(it)?;
+    }
+
+    loop {
+        // camma or close
+        match parse(it)? {
+            JsonToken::Comma(_) => (),
+            JsonToken::CloseObject(e) => {
+                return Ok(JsonToken::Value(start, JsonValue::Object(e + 1 - start)))
+            }
+            //
+            JsonToken::Value(e, value) => return Err(ParseError::Value(e, value)),
+            JsonToken::Colon(e) => return Err(ParseError::Unknown(e, ':')),
+            JsonToken::CloseArray(e) => return Err(ParseError::Unknown(e, '}')),
+        };
+        colon_value(it)?;
+    }
+}
+
+fn parse(it: &mut PeekIt) -> ParseResult {
     while let Some((i, c)) = it.peek() {
         it.next();
         if c.is_whitespace() {
@@ -208,9 +291,12 @@ fn parse(it: &mut PeekIt) -> ParseResult {
             'f' => get_false_token(it, i),              // false
             '0'..='9' | '-' => get_number_token(it, i), // number
             '"' => get_string_token(it, i),             // string
-            ',' => Ok(JsonToken::Comma(i, i)),          // comma
-            ']' => Ok(JsonToken::CloseArray(i, i)),     // close array
+            ',' => Ok(JsonToken::Comma(i)),             // comma
+            ']' => Ok(JsonToken::CloseArray(i)),        // close array
             '[' => get_array_token(it, i),              // open array
+            ':' => Ok(JsonToken::Colon(i)),             // colon
+            '}' => Ok(JsonToken::CloseObject(i)),       // close object
+            '{' => get_object_token(it, i),             // open object
             _ => Err(ParseError::Unknown(i, c)),
         };
     }
@@ -222,13 +308,7 @@ fn process(src: &str) {
     it.next();
 
     match parse(&mut it) {
-        Ok(JsonToken::Value(s, e)) => println!(
-            "number: '{}'[{}..{}] => '{}'",
-            src,
-            s,
-            e + 1,
-            &src[s..e + 1]
-        ),
+        Ok(JsonToken::Value(e, value)) => println!("number: '{}[{}..] => '{}'", src, e, value),
         Err(error) => println!("{} => {}", src, error),
         _ => print!("unknown"),
     }
@@ -239,5 +319,8 @@ fn main() {
     process("2 ");
     process(r##" "hoge" "##);
     process("[1, 2, 3]");
+    process(r##" {"key": "value"} "##);
+    process(r##" {"key": {"key2": 1}} "##);
+
     println!();
 }
