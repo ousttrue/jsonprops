@@ -1,3 +1,22 @@
+struct PeekIt<'a> {
+    it: std::str::CharIndices<'a>,
+    last: Option<(usize, char)>,
+}
+
+impl<'a> PeekIt<'a> {
+    fn new(it: std::str::CharIndices) -> PeekIt {
+        PeekIt { it, last: None }
+    }
+
+    fn next(&mut self) {
+        self.last = self.it.next();
+    }
+
+    fn peek(&mut self) -> Option<(usize, char)> {
+        self.last
+    }
+}
+
 enum JsonToken {
     Value(usize, usize),
     Comma(usize, usize),
@@ -22,8 +41,8 @@ impl fmt::Display for ParseError {
     }
 }
 
-fn get_char(it: &mut std::str::CharIndices, expected: char) -> Result<usize, ParseError> {
-    match it.next() {
+fn get_char(it: &mut PeekIt, expected: char) -> Result<usize, ParseError> {
+    match it.peek() {
         Some((i, c)) => {
             if c == expected {
                 Ok(i)
@@ -35,25 +54,35 @@ fn get_char(it: &mut std::str::CharIndices, expected: char) -> Result<usize, Par
     }
 }
 
-fn get_null_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
+fn get_null_token(it: &mut PeekIt, start: usize) -> ParseResult {
     let _ = get_char(it, 'u')?;
+    it.next();
     let _ = get_char(it, 'l')?;
+    it.next();
     let end = get_char(it, 'l')?;
+    it.next();
     Ok(JsonToken::Value(start, end))
 }
 
-fn get_true_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
+fn get_true_token(it: &mut PeekIt, start: usize) -> ParseResult {
     let _ = get_char(it, 'r')?;
+    it.next();
     let _ = get_char(it, 'u')?;
+    it.next();
     let end = get_char(it, 'e')?;
+    it.next();
     Ok(JsonToken::Value(start, end))
 }
 
-fn get_false_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
+fn get_false_token(it: &mut PeekIt, start: usize) -> ParseResult {
     let _ = get_char(it, 'a')?;
+    it.next();
     let _ = get_char(it, 'l')?;
+    it.next();
     let _ = get_char(it, 's')?;
+    it.next();
     let end = get_char(it, 'e')?;
+    it.next();
     Ok(JsonToken::Value(start, end))
 }
 
@@ -64,12 +93,13 @@ fn is_digit(c: char) -> bool {
     }
 }
 
-fn get_number_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
+fn get_number_token(it: &mut PeekIt, start: usize) -> ParseResult {
     let mut digit = start;
     let mut last = ' ';
 
-    while let Some((i, c)) = it.next() {
+    while let Some((i, c)) = it.peek() {
         if is_digit(c) {
+            it.next();
             digit = i;
             continue;
         }
@@ -78,8 +108,10 @@ fn get_number_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult
     }
 
     if last == '.' {
-        while let Some((i, c)) = it.next() {
+        it.next();
+        while let Some((i, c)) = it.peek() {
             if is_digit(c) {
+                it.next();
                 digit = i;
                 continue;
             }
@@ -89,10 +121,13 @@ fn get_number_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult
     }
 
     if last == 'E' || last == 'e' {
-        if let Some((i, c)) = it.next() {
+        it.next();
+        if let Some((i, c)) = it.peek() {
             if c == '+' || c == '-' {
-                while let Some((i, c)) = it.next() {
+                it.next();
+                while let Some((i, c)) = it.peek() {
                     if is_digit(c) {
+                        it.next();
                         digit = i;
                         continue;
                     }
@@ -109,8 +144,9 @@ fn get_number_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult
     Ok(JsonToken::Value(start, digit))
 }
 
-fn get_string_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
-    while let Some((i, c)) = it.next() {
+fn get_string_token(it: &mut PeekIt, start: usize) -> ParseResult {
+    while let Some((i, c)) = it.peek() {
+        it.next();
         if c == '"' {
             return Ok(JsonToken::Value(start, i));
         }
@@ -125,7 +161,7 @@ fn is_close_array(token: JsonToken) -> (bool, usize) {
     }
 }
 
-fn get_array_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult {
+fn get_array_token(it: &mut PeekIt, start: usize) -> ParseResult {
     {
         // value or close
         match parse(it)? {
@@ -158,8 +194,10 @@ fn get_array_token(it: &mut std::str::CharIndices, start: usize) -> ParseResult 
     }
 }
 
-fn parse(it: &mut std::str::CharIndices) -> ParseResult {
-    while let Some((i, c)) = it.next() {
+fn parse(it: &mut PeekIt) -> ParseResult {
+
+    while let Some((i, c)) = it.peek() {
+        it.next();
         if c.is_whitespace() {
             continue;
         }
@@ -180,7 +218,8 @@ fn parse(it: &mut std::str::CharIndices) -> ParseResult {
 }
 
 fn process(src: &str) {
-    let mut it = src.char_indices();
+    let mut it = PeekIt::new(src.char_indices());
+    it.next();
 
     match parse(&mut it) {
         Ok(JsonToken::Value(s, e)) => println!(
