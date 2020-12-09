@@ -3,66 +3,50 @@ enum ParseError {
     Eof(),
     Position(usize),
 }
+type ParseResult = Result<(usize, usize), ParseError>;
+
+fn get_char(it: &mut std::str::CharIndices, expected: char) -> ParseResult {
+    match it.next() {
+        Some((i, c)) => {
+            if c == expected {
+                Ok((i, i))
+            } else {
+                Err(ParseError::Position(i))
+            }
+        }
+        None => Err(ParseError::Eof()),
+    }
+}
 
 fn get_null_token(
     it: &mut std::str::CharIndices,
     start: usize,
 ) -> Result<(usize, usize), ParseError> {
-    match it.next() {
-        Some((_, 'u')) => match it.next() {
-            Some((_, 'l')) => match it.next() {
-                Some((i, 'l')) => Ok((start, i)),
-                Some((i, _)) => Err(ParseError::Position(i)),
-                None => Err(ParseError::Eof()),
-            },
-            Some((i, _)) => Err(ParseError::Position(i)),
-            None => Err(ParseError::Eof()),
-        },
-        Some((i, _)) => Err(ParseError::Position(i)),
-        None => Err(ParseError::Eof()),
-    }
+    let _ = get_char(it, 'u')?;
+    let _ = get_char(it, 'l')?;
+    let (_, end) = get_char(it, 'l')?;
+    Ok((start, end))
 }
 
 fn get_true_token(
     it: &mut std::str::CharIndices,
     start: usize,
 ) -> Result<(usize, usize), ParseError> {
-    match it.next() {
-        Some((_, 'r')) => match it.next() {
-            Some((_, 'u')) => match it.next() {
-                Some((i, 'e')) => Ok((start, i)),
-                Some((i, _)) => Err(ParseError::Position(i)),
-                None => Err(ParseError::Eof()),
-            },
-            Some((i, _)) => Err(ParseError::Position(i)),
-            None => Err(ParseError::Eof()),
-        },
-        Some((i, _)) => Err(ParseError::Position(i)),
-        None => Err(ParseError::Eof()),
-    }
+    let _ = get_char(it, 'r')?;
+    let _ = get_char(it, 'u')?;
+    let (_, end) = get_char(it, 'e')?;
+    Ok((start, end))
 }
 
 fn get_false_token(
     it: &mut std::str::CharIndices,
     start: usize,
 ) -> Result<(usize, usize), ParseError> {
-    match it.next() {
-        Some((_, 'a')) => match it.next() {
-            Some((_, 'l')) => match it.next() {
-                Some((_, 's')) => match it.next() {
-                    Some((i, 'e')) => Ok((start, i)),
-                    Some((i, _)) => Err(ParseError::Position(i)),
-                    None => Err(ParseError::Eof()),
-                },
-                Some((i, _)) => Err(ParseError::Position(i)),
-                None => Err(ParseError::Eof()),
-            },
-            Some((i, _)) => Err(ParseError::Position(i)),
-            None => Err(ParseError::Eof()),
-        },
-        Some((i, _)) => Err(ParseError::Position(i)),
-        None => Err(ParseError::Eof()),
-    }
+    let _ = get_char(it, 'a')?;
+    let _ = get_char(it, 'l')?;
+    let _ = get_char(it, 's')?;
+    let (_, end) = get_char(it, 'e')?;
+    Ok((start, end))
 }
 
 fn get_number_token(it: &mut std::str::CharIndices, start: usize) -> (usize, usize) {
