@@ -193,7 +193,7 @@ fn get_string_token(it: &mut PeekIt, start: usize) -> ParseResult {
 }
 
 impl<'a> Parser<'a> {
-    fn get_array_token(&mut self, it: &mut PeekIt, _: usize) -> ParseResult {
+    fn get_array_token(&mut self, it: &mut PeekIt) -> ParseResult {
         {
             // value or close
             match self.parse(it)? {
@@ -243,7 +243,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn get_object_token(&mut self, it: &mut PeekIt, start: usize) -> ParseResult {
+    fn get_object_token(&mut self, it: &mut PeekIt) -> ParseResult {
         {
             // key or close
             match self.parse(it)? {
@@ -262,7 +262,7 @@ impl<'a> Parser<'a> {
                 JsonToken::ArrayClose(i) => return Err(ParseError::Unknown(i, ']')),
                 token @ JsonToken::ObjectClose(_) => return Ok(token),
                 JsonToken::Value(i, value) => return Err(ParseError::Value(i, value)),
-                JsonToken::Comma(i) => (), // continue
+                JsonToken::Comma(_) => (), // continue
                 JsonToken::Colon(i) => return Err(ParseError::Unknown(i, ':')),
             };
             // key
@@ -315,7 +315,7 @@ impl<'a> Parser<'a> {
                     let index = self.tokens.len();
                     self.tokens
                         .push(JsonToken::Value(i, JsonValue::ArrayOpen(index + 1)));
-                    self.get_array_token(it, i)?;
+                    self.get_array_token(it)?;
 
                     // update close
                     let end_index = self.tokens.len() - 1;
@@ -333,7 +333,7 @@ impl<'a> Parser<'a> {
                     let index = self.tokens.len();
                     self.tokens
                         .push(JsonToken::Value(i, JsonValue::ObjectOpen(index + 1)));
-                    self.get_object_token(it, i)?;
+                    self.get_object_token(it)?;
 
                     // update close
                     let end_index = self.tokens.len() - 1;
@@ -418,7 +418,7 @@ impl<'a> Parser<'a> {
         match token {
             JsonToken::Value(_, value) => match value {
                 JsonValue::ArrayOpen(close_index) => close_index + 1,
-                JsonValue::ObjectOpen(close_index) => close_index +1,
+                JsonValue::ObjectOpen(close_index) => close_index + 1,
                 _ => index + 1,
             },
             _ => panic!(),
@@ -484,7 +484,7 @@ impl<'a> JsonNode<'a> {
 
                         // value
                         let key = self.parser.get_slice(key_index);
-                        if &key[1..key.len()-1] == target {
+                        if &key[1..key.len() - 1] == target {
                             return Ok(JsonNode {
                                 parser: self.parser,
                                 index: value_index,
@@ -536,8 +536,6 @@ fn _node_tests<'a>() -> JsonNodeResult<'a> {
         let parser = Parser::process(r##"{ "key": {"key2": true }}"##);
         let obj = parser.root();
         assert_eq!("true", obj.key("key")?.key("key2")?.slice());
-
-        parser.root().key("key");
     }
 
     Err(JsonNodeError {})
