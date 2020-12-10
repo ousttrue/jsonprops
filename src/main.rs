@@ -342,14 +342,13 @@ impl<'a> Parser<'a> {
                 ',' => Ok(JsonToken::Comma(i)),
                 '[' => {
                     let index = self.values.len();
-                    let token = JsonToken::Value(i, JsonValue::ArrayOpen(index + 1));
-                    self.values.push(token);
+                    self.values.push(JsonToken::Value(i, JsonValue::ArrayOpen(index + 1)));
                     self.get_array_token(it, i)?;
 
                     // update close
                     let end_index = self.values.len() - 1;
-                    self.values[index] = JsonToken::Value(i, JsonValue::ArrayOpen(end_index));
-
+                    let token = JsonToken::Value(i, JsonValue::ArrayOpen(end_index));
+                    self.values[index] = token;
                     Ok(token)
                 }
                 ']' => {
@@ -359,15 +358,14 @@ impl<'a> Parser<'a> {
                 }
                 ':' => Ok(JsonToken::Colon(i)),
                 '{' => {
-                    let index = self.values.len();
-                    let token = JsonToken::Value(i, JsonValue::ObjectOpen(index + 1));
-                    self.values.push(token);
+                    let index = self.values.len();                    
+                    self.values.push(JsonToken::Value(i, JsonValue::ObjectOpen(index + 1)));
                     self.get_object_token(it, i)?;
 
                     // update close
                     let end_index = self.values.len() - 1;
-                    self.values[index] = JsonToken::Value(i, JsonValue::ArrayOpen(end_index));
-
+                    let token = JsonToken::Value(i, JsonValue::ObjectOpen(end_index));
+                    self.values[index] = token;
                     Ok(token)
                 }
                 '}' => {
@@ -397,8 +395,9 @@ impl<'a> Parser<'a> {
         let mut it = PeekIt::new(parser.src.char_indices());
         it.next();
         match parser.parse(&mut it) {
-            Ok(JsonToken::Value(e, value)) => {
-                println!("number: '{}[{}..] => '{}'", parser.src, e, value)
+            Ok(JsonToken::Value(i, value)) => {
+                let end = parser.value_end(i, &value);
+                println!(r##""{}"[{}..{}] => {}"##, parser.src, i, end, &parser.src[i..end])
             }
             Err(error) => println!("{} => {}", parser.src, error),
             _ => print!("unknown"),
@@ -407,29 +406,34 @@ impl<'a> Parser<'a> {
         parser
     }
 
-    fn end(&self, token: &JsonToken) -> usize {
-        match token {
-            JsonToken::Value(i, value) => match value {
-                JsonValue::Null() => *i + 4,
-                JsonValue::True() => *i + 4,
-                JsonValue::False() => *i + 5,
-                JsonValue::Number(n) => *i + *n,
-                JsonValue::String(n) => *i + *n,
-                JsonValue::ArrayOpen(index) => {
-                    let close = &self.values[*index];
-                    self.end(close)
-                }
-                JsonValue::ArrayClose() => *i + 1,
-                JsonValue::ObjectOpen(index) => {
-                    let close = &self.values[*index];
-                    self.end(close)
-                }
-                JsonValue::ObjectClose() => *i + 1,
-            },
-            JsonToken::Comma(i) => *i + 1,
-            JsonToken::Colon(i) => *i + 1,
+    fn value_end(&self, i: usize, value: &JsonValue) -> usize {
+            match value {
+            JsonValue::Null() => i + 4,
+            JsonValue::True() => i + 4,
+            JsonValue::False() => i + 5,
+            JsonValue::Number(n) => i + *n,
+            JsonValue::String(n) => i + *n,
+            JsonValue::ArrayOpen(index) => {
+                let close = &self.values[*index];
+                self.end(close)
+            }
+            JsonValue::ArrayClose() => i + 1,
+            JsonValue::ObjectOpen(index) => {
+                let close = &self.values[*index];
+                self.end(close)
+            }
+            JsonValue::ObjectClose() => i + 1,
         }
     }
+
+    fn end(&self, token: &JsonToken) -> usize {
+        match token {
+            JsonToken::Value(i, value) => self.value_end(*i, value),
+            JsonToken::Comma(i) => *i + 1,
+            JsonToken::Colon(i) => *i + 1,
+        }        
+    }
+
 }
 
 struct JsonNode<'a> {
@@ -462,7 +466,11 @@ fn slice_tests() {
         r##""hoge""##,
         Parser::process(r##" "hoge" "##).root().slice()
     );
-    assert_eq!("[1, 2, 3]", Parser::process("[1, 2, 3]").root().slice());
+    assert_eq!("[1, 2, 3]", Parser::process(" [1, 2, 3]").root().slice());
+    assert_eq!(
+        r##"{"key": true}"##,
+        Parser::process(r##" {"key": true}"##).root().slice()
+    );
 }
 
 #[test]
