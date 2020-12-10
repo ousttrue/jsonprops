@@ -13,4 +13,8 @@ fn main() {
 
     let root = json::node::JsonNode::new(&parser);
     println!("ok");
+
+    for (k, v) in root.object_iter() {
+        println!("{} => ", k);
+    }
 }

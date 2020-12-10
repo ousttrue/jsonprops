@@ -53,6 +53,18 @@ pub enum JsonToken {
     ObjectClose(usize),
 }
 
+impl fmt::Display for JsonToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JsonToken::Colon(_) => write!(f, ":"),
+            JsonToken::Comma(_) => write!(f, ","),
+            JsonToken::ArrayClose(_) => write!(f, "]"),
+            JsonToken::ObjectClose(_) => write!(f, "}}"),
+            JsonToken::Value(_, value) => write!(f, "{}", value),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum ParseError {
     Eof(),
@@ -361,21 +373,22 @@ impl<'a> Parser<'a> {
         let mut it = PeekIt::new(parser.src.char_indices());
         it.next();
         match parser.parse(&mut it) {
-            Ok(JsonToken::Value(i, value)) => {
-                let end = parser.value_end(i, &value);
-                println!(
-                    r##""{}"[{}..{}] => {}"##,
-                    parser.src,
-                    i,
-                    end,
-                    &parser.src[i..end]
-                )
+            Ok(_) => {
+                return parser;
+                // let end = parser.value_end(i, &value);
+                // println!(
+                //     r##""{}"[{}..{}] => {}"##,
+                //     parser.src,
+                //     i,
+                //     end,
+                //     &parser.src[i..end]
+                // )
             }
             Err(error) => println!("{} => {}", parser.src, error),
             _ => print!("unknown"),
         }
 
-        parser
+        panic!()
     }
 
     fn value_end(&self, i: usize, value: &JsonValue) -> usize {

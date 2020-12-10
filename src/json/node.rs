@@ -5,13 +5,58 @@ pub struct JsonNode<'a> {
     index: usize,
 }
 
+impl<'a> std::fmt::Display for JsonNode<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.parser.get_slice(self.index))
+    }
+}
+
 #[derive(Debug, Clone)]
 struct JsonNodeError {}
 type JsonNodeResult<'a> = Result<JsonNode<'a>, JsonNodeError>;
 
+pub struct JsonArrayIter<'a> {
+    parser: &'a Parser<'a>,
+    current: usize,
+    end: usize,
+}
+
+pub struct JsonObjectIter<'a> {
+    parser: &'a Parser<'a>,
+    current: usize,
+    end: usize,
+}
+
+impl<'a> Iterator for JsonObjectIter<'a> {
+    type Item = (JsonNode<'a>, JsonNode<'a>);
+
+    fn next(&mut self) -> Option<(JsonNode<'a>, JsonNode<'a>)> {
+        if self.current == self.end {
+            return None;
+        }
+
+        let key_index = self.current;
+        let value_index = self.parser.next_sibling(key_index);
+        self.current = self.parser.next_sibling(value_index);
+
+        Some((
+            JsonNode::from_index(self.parser, key_index),
+            JsonNode::from_index(self.parser, value_index),
+        ))
+    }
+}
+
 impl<'a> JsonNode<'a> {
     pub fn new<'b>(parser: &'b Parser) -> JsonNode<'b> {
         JsonNode { parser, index: 0 }
+    }
+
+    pub fn from_index<'b>(parser: &'b Parser, index: usize) -> JsonNode<'b> {
+        JsonNode { parser, index }
+    }
+
+    fn token(&self) -> &JsonToken {
+        &self.parser.tokens[self.index]
     }
 
     fn slice(&self) -> &str {
@@ -19,7 +64,7 @@ impl<'a> JsonNode<'a> {
     }
 
     fn get(&self, index: usize) -> JsonNodeResult {
-        let token = &self.parser.tokens[self.index];
+        let token = self.token();
         match token {
             JsonToken::Value(_, value) => {
                 match value {
@@ -42,7 +87,7 @@ impl<'a> JsonNode<'a> {
     }
 
     fn key(&self, target: &str) -> JsonNodeResult {
-        let token = &self.parser.tokens[self.index];
+        let token = self.token();
         match token {
             JsonToken::Value(_, value) => match value {
                 JsonValue::ObjectOpen(close_index) => {
@@ -69,6 +114,30 @@ impl<'a> JsonNode<'a> {
                 _ => Err(JsonNodeError {}),
             },
             _ => Err(JsonNodeError {}),
+        }
+    }
+
+    pub fn object_iter(&self) -> JsonObjectIter {
+        let token = self.token();
+
+        match token {
+            JsonToken::Value(_, value) => match value {
+                JsonValue::ObjectOpen(close_index) => {
+                    return JsonObjectIter {
+                        parser: self.parser,
+                        current: self.index + 1,
+                        end: *close_index,
+                    }
+                }
+                _ => (),
+            },
+            _ => (),
+        }
+
+        JsonObjectIter {
+            parser: self.parser,
+            current: self.index + 1,
+            end: self.index + 1,
         }
     }
 }
