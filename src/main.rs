@@ -32,22 +32,6 @@ enum JsonValue {
     ObjectClose(),
 }
 
-impl JsonValue {
-    fn len(&self) -> usize {
-        match self {
-            JsonValue::Null() => 4,
-            JsonValue::True() => 4,
-            JsonValue::False() => 5,
-            JsonValue::Number(n) => *n,
-            JsonValue::String(n) => *n,
-            JsonValue::ArrayOpen(_) => 1,
-            JsonValue::ArrayClose() => 1,
-            JsonValue::ObjectOpen(_) => 1,
-            JsonValue::ObjectClose() => 1,
-        }
-    }
-}
-
 impl fmt::Display for JsonValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -89,52 +73,9 @@ impl fmt::Display for ParseError {
     }
 }
 
-// struct JsonSegment {
-//     pos: usize,
-//     value: JsonValue,
-// }
-
-// impl JsonSegment {
-//     fn new(token: &JsonToken) -> JsonSegment {
-//         match token {
-//             JsonToken::Value(pos, value) => JsonSegment {
-//                 pos: *pos,
-//                 value: *value,
-//             },
-//             _ => panic!(),
-//         }
-//     }
-// }
-
 struct Parser<'a> {
     src: &'a str,
     values: Vec<JsonToken>,
-}
-
-struct JsonNode<'a> {
-    parser: &'a Parser<'a>,
-    index: usize,
-}
-
-#[derive(Debug, Clone)]
-struct JsonNodeError {}
-type JsonNodeResult<'a> = Result<JsonNode<'a>, JsonNodeError>;
-
-impl<'a> JsonNode<'a> {
-    fn slice(&self) -> &str {
-        let token = &self.parser.values[self.index];
-        match token {
-            JsonToken::Value(i, value) => match value {
-                JsonValue::Null() => &self.parser.src[*i..*i + value.len()],
-                _ => panic!(),
-            },
-            _ => panic!(),
-        }
-    }
-
-    fn get(&self, index: usize) -> JsonNodeResult {
-        Err(JsonNodeError {})
-    }
 }
 
 fn get_char(it: &mut PeekIt, expected: char) -> Result<usize, ParseError> {
@@ -401,9 +342,14 @@ impl<'a> Parser<'a> {
                 ',' => Ok(JsonToken::Comma(i)),
                 '[' => {
                     let index = self.values.len();
-                    let token = JsonToken::Value(i, JsonValue::ArrayOpen(index));
+                    let token = JsonToken::Value(i, JsonValue::ArrayOpen(index + 1));
                     self.values.push(token);
-                    self.get_array_token(it, i);
+                    self.get_array_token(it, i)?;
+
+                    // update close
+                    let end_index = self.values.len() - 1;
+                    self.values[index] = JsonToken::Value(i, JsonValue::ArrayOpen(end_index));
+
                     Ok(token)
                 }
                 ']' => {
@@ -414,9 +360,14 @@ impl<'a> Parser<'a> {
                 ':' => Ok(JsonToken::Colon(i)),
                 '{' => {
                     let index = self.values.len();
-                    let token = JsonToken::Value(i, JsonValue::ObjectOpen(index));
+                    let token = JsonToken::Value(i, JsonValue::ObjectOpen(index + 1));
                     self.values.push(token);
                     self.get_object_token(it, i)?;
+
+                    // update close
+                    let end_index = self.values.len() - 1;
+                    self.values[index] = JsonToken::Value(i, JsonValue::ArrayOpen(end_index));
+
                     Ok(token)
                 }
                 '}' => {
@@ -454,6 +405,53 @@ impl<'a> Parser<'a> {
         }
 
         parser
+    }
+
+    fn end(&self, token: &JsonToken) -> usize {
+        match token {
+            JsonToken::Value(i, value) => match value {
+                JsonValue::Null() => *i + 4,
+                JsonValue::True() => *i + 4,
+                JsonValue::False() => *i + 5,
+                JsonValue::Number(n) => *i + *n,
+                JsonValue::String(n) => *i + *n,
+                JsonValue::ArrayOpen(index) => {
+                    let close = &self.values[*index];
+                    self.end(close)
+                }
+                JsonValue::ArrayClose() => *i + 1,
+                JsonValue::ObjectOpen(index) => {
+                    let close = &self.values[*index];
+                    self.end(close)
+                }
+                JsonValue::ObjectClose() => *i + 1,
+            },
+            JsonToken::Comma(i) => *i + 1,
+            JsonToken::Colon(i) => *i + 1,
+        }
+    }
+}
+
+struct JsonNode<'a> {
+    parser: &'a Parser<'a>,
+    index: usize,
+}
+
+#[derive(Debug, Clone)]
+struct JsonNodeError {}
+type JsonNodeResult<'a> = Result<JsonNode<'a>, JsonNodeError>;
+
+impl<'a> JsonNode<'a> {
+    fn slice(&self) -> &str {
+        let token = &self.parser.values[self.index];
+        match token {
+            JsonToken::Value(i, _) => &self.parser.src[*i..self.parser.end(token)],
+            _ => panic!(),
+        }
+    }
+
+    fn get(&self, index: usize) -> JsonNodeResult {
+        Err(JsonNodeError {})
     }
 }
 
