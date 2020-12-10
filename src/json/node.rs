@@ -1,6 +1,6 @@
 use super::parser::*;
 
-struct JsonNode<'a> {
+pub struct JsonNode<'a> {
     parser: &'a Parser<'a>,
     index: usize,
 }
@@ -10,7 +10,7 @@ struct JsonNodeError {}
 type JsonNodeResult<'a> = Result<JsonNode<'a>, JsonNodeError>;
 
 impl<'a> JsonNode<'a> {
-    fn new<'b>(parser: &'b Parser) -> JsonNode<'b> {
+    pub fn new<'b>(parser: &'b Parser) -> JsonNode<'b> {
         JsonNode { parser, index: 0 }
     }
 

@@ -1,11 +1,16 @@
 mod json;
 
 fn main() {
-    json::parser::Parser::process("2 ");
-    json::parser::Parser::process(r##" "hoge" "##);
-    json::parser::Parser::process("[1, 2, 3]");
-    json::parser::Parser::process(r##" {"key": "value"} "##);
-    let parser = json::parser::Parser::process(r##" {"key": {"key2": 1}} "##);
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+        println!("usage: jsonprop.exe {{input.json}}");
+        return;
+    }
 
-    println!();
+    let text = std::fs::read_to_string(&args[1]).unwrap();
+
+    let parser = json::parser::Parser::process(&text);
+
+    let root = json::node::JsonNode::new(&parser);
+    println!("ok");
 }
