@@ -24,12 +24,10 @@ enum JsonValue {
     Null(),
     True(),
     False(),
-    Number(usize),    // byte len
-    String(usize),    // byte len
-    ArrayOpen(usize), // close index
-    ArrayClose(),
+    Number(usize),     // byte len
+    String(usize),     // byte len
+    ArrayOpen(usize),  // close index
     ObjectOpen(usize), // close index
-    ObjectClose(),
 }
 
 impl fmt::Display for JsonValue {
@@ -41,9 +39,7 @@ impl fmt::Display for JsonValue {
             JsonValue::Number(len) => write!(f, "number[{}]", len),
             JsonValue::String(len) => write!(f, "string[{}]", len),
             JsonValue::ArrayOpen(_) => write!(f, "["),
-            JsonValue::ArrayClose() => write!(f, "]"),
             JsonValue::ObjectOpen(_) => write!(f, "{{"),
-            JsonValue::ObjectClose() => write!(f, "}}"),
         }
     }
 }
@@ -53,6 +49,8 @@ enum JsonToken {
     Value(usize, JsonValue),
     Comma(usize),
     Colon(usize),
+    ArrayClose(usize),
+    ObjectClose(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -199,14 +197,9 @@ impl<'a> Parser<'a> {
         {
             // value or close
             match self.parse(it)? {
-                JsonToken::Value(i, JsonValue::ArrayClose()) => {
-                    return Ok(JsonToken::Value(i, JsonValue::ArrayClose()));
-                }
-                JsonToken::Value(i, JsonValue::ObjectClose()) => {
-                    return Err(ParseError::Unknown(i, '}'));
-                }
+                token @ JsonToken::ArrayClose(_) => return Ok(token),
+                JsonToken::ObjectClose(i) => return Err(ParseError::Unknown(i, '}')),
                 JsonToken::Value(_, _) => (), // continue
-                //
                 JsonToken::Comma(i) => return Err(ParseError::Unknown(i, ',')),
                 JsonToken::Colon(i) => return Err(ParseError::Unknown(i, ':')),
             };
@@ -214,27 +207,17 @@ impl<'a> Parser<'a> {
         loop {
             // comma or close
             match self.parse(it)? {
-                JsonToken::Value(i, JsonValue::ArrayClose()) => {
-                    return Ok(JsonToken::Value(i, JsonValue::ArrayClose()));
-                }
-                JsonToken::Value(i, JsonValue::ObjectClose()) => {
-                    return Err(ParseError::Unknown(i, '}'));
-                }
+                token @ JsonToken::ArrayClose(_) => return Ok(token),
+                JsonToken::ObjectClose(i) => return Err(ParseError::Unknown(i, '}')),
                 JsonToken::Value(i, value) => return Err(ParseError::Value(i, value)),
-                //
                 JsonToken::Comma(_) => (), // continue
                 JsonToken::Colon(i) => return Err(ParseError::Unknown(i, ':')),
             };
             // must value
             match self.parse(it)? {
-                JsonToken::Value(i, JsonValue::ArrayClose()) => {
-                    return Err(ParseError::Unknown(i, ']'));
-                }
-                JsonToken::Value(i, JsonValue::ObjectClose()) => {
-                    return Err(ParseError::Unknown(i, '}'));
-                }
+                JsonToken::ArrayClose(i) => return Err(ParseError::Unknown(i, ']')),
+                JsonToken::ObjectClose(i) => return Err(ParseError::Unknown(i, '}')),
                 JsonToken::Value(i, value) => (), // continue
-                //
                 JsonToken::Comma(i) => return Err(ParseError::Unknown(i, ',')),
                 JsonToken::Colon(i) => return Err(ParseError::Unknown(i, ':')),
             };
@@ -244,27 +227,17 @@ impl<'a> Parser<'a> {
     fn colon_value(&mut self, it: &mut PeekIt) -> ParseResult {
         // :
         match self.parse(it)? {
-            JsonToken::Value(i, JsonValue::ArrayClose()) => {
-                return Err(ParseError::Unknown(i, ']'));
-            }
-            JsonToken::Value(i, JsonValue::ObjectClose()) => {
-                return Err(ParseError::Unknown(i, '}'))
-            }
+            JsonToken::ArrayClose(i) => return Err(ParseError::Unknown(i, ']')),
+            JsonToken::ObjectClose(i) => return Err(ParseError::Unknown(i, '}')),
             JsonToken::Value(i, value) => return Err(ParseError::Value(i, value)),
-            //
             JsonToken::Comma(i) => return Err(ParseError::Unknown(i, ',')),
             JsonToken::Colon(i) => (), // continue
         }
         // value
         match self.parse(it)? {
-            JsonToken::Value(i, JsonValue::ArrayClose()) => {
-                return Err(ParseError::Unknown(i, ']'));
-            }
-            JsonToken::Value(i, JsonValue::ObjectClose()) => {
-                return Err(ParseError::Unknown(i, '}'))
-            }
+            JsonToken::ArrayClose(i) => return Err(ParseError::Unknown(i, ']')),
+            JsonToken::ObjectClose(i) => return Err(ParseError::Unknown(i, '}')),
             JsonToken::Value(i, value) => Ok(JsonToken::Value(i, value)),
-            //
             JsonToken::Comma(i) => return Err(ParseError::Unknown(i, ',')),
             JsonToken::Colon(i) => return Err(ParseError::Unknown(i, ':')),
         }
@@ -274,14 +247,9 @@ impl<'a> Parser<'a> {
         {
             // key or close
             match self.parse(it)? {
-                JsonToken::Value(i, JsonValue::ArrayClose()) => {
-                    return Err(ParseError::Unknown(i, ']'));
-                }
-                JsonToken::Value(i, JsonValue::ObjectClose()) => {
-                    return Ok(JsonToken::Value(i, JsonValue::ObjectClose()));
-                }
-                JsonToken::Value(i, value) => (), // continue
-                //
+                JsonToken::ArrayClose(i) => return Err(ParseError::Unknown(i, ']')),
+                token @ JsonToken::ObjectClose(_) => return Ok(token),
+                JsonToken::Value(_, _) => (), // continue
                 JsonToken::Comma(i) => return Err(ParseError::Unknown(i, ',')),
                 JsonToken::Colon(i) => return Err(ParseError::Unknown(i, ':')),
             };
@@ -291,14 +259,9 @@ impl<'a> Parser<'a> {
         loop {
             // camma or close
             match self.parse(it)? {
-                JsonToken::Value(i, JsonValue::ArrayClose()) => {
-                    return Err(ParseError::Unknown(i, ']'));
-                }
-                JsonToken::Value(i, JsonValue::ObjectClose()) => {
-                    return Ok(JsonToken::Value(i, JsonValue::ObjectClose()));
-                }
+                JsonToken::ArrayClose(i) => return Err(ParseError::Unknown(i, ']')),
+                token @ JsonToken::ObjectClose(_) => return Ok(token),
                 JsonToken::Value(i, value) => return Err(ParseError::Value(i, value)),
-                //
                 JsonToken::Comma(i) => (), // continue
                 JsonToken::Colon(i) => return Err(ParseError::Unknown(i, ':')),
             };
@@ -353,7 +316,7 @@ impl<'a> Parser<'a> {
                     Ok(token)
                 }
                 ']' => {
-                    let token = JsonToken::Value(i, JsonValue::ArrayClose());
+                    let token = JsonToken::ArrayClose(i);
                     self.tokens.push(token);
                     Ok(token)
                 }
@@ -371,7 +334,7 @@ impl<'a> Parser<'a> {
                     Ok(token)
                 }
                 '}' => {
-                    let token = JsonToken::Value(i, JsonValue::ObjectClose());
+                    let token = JsonToken::ObjectClose(i);
                     self.tokens.push(token);
                     Ok(token)
                 }
@@ -425,12 +388,10 @@ impl<'a> Parser<'a> {
                 let close = &self.tokens[*index];
                 self.end(close)
             }
-            JsonValue::ArrayClose() => i + 1,
             JsonValue::ObjectOpen(index) => {
                 let close = &self.tokens[*index];
                 self.end(close)
             }
-            JsonValue::ObjectClose() => i + 1,
         }
     }
 
@@ -439,6 +400,8 @@ impl<'a> Parser<'a> {
             JsonToken::Value(i, value) => self.value_end(*i, value),
             JsonToken::Comma(i) => *i + 1,
             JsonToken::Colon(i) => *i + 1,
+            JsonToken::ArrayClose(i) => *i + 1,
+            JsonToken::ObjectClose(i) => *i + 1,
         }
     }
 
