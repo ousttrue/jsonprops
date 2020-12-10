@@ -441,6 +441,17 @@ impl<'a> Parser<'a> {
             JsonToken::Colon(i) => *i + 1,
         }
     }
+
+    fn next_sibling(&self, index: usize) -> usize {
+        let token = self.tokens[index];
+        match token {
+            JsonToken::Value(_, value) => match value {
+                JsonValue::ArrayOpen(close_index) => close_index + 1,
+                _ => index + 1,
+            },
+            _ => panic!(),
+        }
+    }
 }
 
 struct JsonNode<'a> {
@@ -464,19 +475,18 @@ impl<'a> JsonNode<'a> {
     fn get(&self, index: usize) -> JsonNodeResult {
         let token = &self.parser.tokens[self.index];
         match token {
-            JsonToken::Value(i, value) => {
+            JsonToken::Value(_, value) => {
                 match value {
-                    JsonValue::ArrayOpen(close_index) => {
-                        let close = self.parser.tokens[*close_index];
-                        let current = self.index + 1;
-                        for i in 0..index {
-                            let value = self.parser.tokens[current];
-                            // match value {
-                            //     JsonTOk
-                            // }
+                    JsonValue::ArrayOpen(_) => {
+                        // let close = self.parser.tokens[*close_index];
+                        let mut current = self.index + 1;
+                        for _ in 0..index {
+                            current = self.parser.next_sibling(current);
                         }
-
-                        Err(JsonNodeError {})
+                        Ok(JsonNode {
+                            parser: self.parser,
+                            index: current,
+                        })
                     }
                     _ => Err(JsonNodeError {}),
                 }
@@ -502,10 +512,11 @@ fn slice_tests() {
 
 #[test]
 fn node_tests() {
-    assert_eq!(
-        "1",
-        Parser::process("[1, 2, 3]").root().get(0).unwrap().slice()
-    );
+    let parser = Parser::process("[1, 2, 3]");
+    let array = parser.root();
+    assert_eq!("1", array.get(0).unwrap().slice());
+    assert_eq!("2", array.get(1).unwrap().slice());
+    assert_eq!("3", array.get(2).unwrap().slice());
 }
 
 fn main() {
