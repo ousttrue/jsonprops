@@ -83,8 +83,8 @@ impl fmt::Display for ParseError {
     }
 }
 
-pub struct Parser<'a> {
-    src: &'a str,
+pub struct JsonParser<'a> {
+    pub src: &'a str,
     pub tokens: Vec<JsonToken>,
 }
 
@@ -204,7 +204,7 @@ fn get_string_token(it: &mut PeekIt, start: usize) -> ParseResult {
     Err(ParseError::Eof())
 }
 
-impl<'a> Parser<'a> {
+impl<'a> JsonParser<'a> {
     fn get_array_token(&mut self, it: &mut PeekIt) -> ParseResult {
         {
             // value or close
@@ -364,8 +364,8 @@ impl<'a> Parser<'a> {
         Err(ParseError::Eof())
     }
 
-    pub fn process(src: &str) -> Parser {
-        let mut parser = Parser {
+    pub fn process(src: &str) -> JsonParser {
+        let mut parser = JsonParser {
             src: src,
             tokens: Vec::new(),
         };
@@ -433,9 +433,37 @@ impl<'a> Parser<'a> {
 
     pub fn get_slice(&self, index: usize) -> &str {
         let token = &self.tokens[index];
+        let (begin, end) = match token {
+            JsonToken::Value(i, _) => (*i, self.end(token)),
+            JsonToken::Colon(i) => (*i, *i + 1),
+            JsonToken::Comma(i) => (*i, *i + 1),
+            JsonToken::ArrayClose(i) => (*i, *i + 1),
+            JsonToken::ObjectClose(i) => (*i, *i + 1),
+        };
+
+        &self.src[begin..end]
+    }
+
+    pub fn get_int(&self, index: usize) -> Option<i64> {
+        let token = &self.tokens[index];
         match token {
-            JsonToken::Value(i, _) => &self.src[*i..self.end(token)],
-            _ => panic!(),
+            JsonToken::Value(i, JsonValue::Number(len)) => {
+                let segment = &self.src[*i..*i + len];
+                if let Ok(value) = segment.parse::<i64>() {
+                    Some(value)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn get_string(&self, index: usize) -> Option<&str> {
+        let token = &self.tokens[index];
+        match token {
+            JsonToken::Value(i, JsonValue::String(len)) => Some(&self.src[*i + 1..*i + len - 1]),
+            _ => None,
         }
     }
 }

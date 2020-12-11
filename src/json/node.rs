@@ -1,7 +1,7 @@
 use super::parser::*;
 
 pub struct JsonNode<'a> {
-    parser: &'a Parser<'a>,
+    parser: &'a JsonParser<'a>,
     index: usize,
 }
 
@@ -12,25 +12,25 @@ impl<'a> std::fmt::Display for JsonNode<'a> {
 }
 
 #[derive(Debug, Clone)]
-struct JsonNodeError {}
+pub struct JsonNodeError {}
 type JsonNodeResult<'a> = Result<JsonNode<'a>, JsonNodeError>;
 
 pub struct JsonArrayIter<'a> {
-    parser: &'a Parser<'a>,
+    parser: &'a JsonParser<'a>,
     current: usize,
     end: usize,
 }
 
 pub struct JsonObjectIter<'a> {
-    parser: &'a Parser<'a>,
+    parser: &'a JsonParser<'a>,
     current: usize,
     end: usize,
 }
 
 impl<'a> Iterator for JsonObjectIter<'a> {
-    type Item = (JsonNode<'a>, JsonNode<'a>);
+    type Item = (&'a str, JsonNode<'a>);
 
-    fn next(&mut self) -> Option<(JsonNode<'a>, JsonNode<'a>)> {
+    fn next(&mut self) -> Option<(&'a str, JsonNode<'a>)> {
         if self.current == self.end {
             return None;
         }
@@ -39,31 +39,47 @@ impl<'a> Iterator for JsonObjectIter<'a> {
         let value_index = self.parser.next_sibling(key_index);
         self.current = self.parser.next_sibling(value_index);
 
-        Some((
-            JsonNode::from_index(self.parser, key_index),
-            JsonNode::from_index(self.parser, value_index),
-        ))
+        if let Some(key) = self.parser.get_string(key_index) {
+            Some((key, JsonNode::from_index(self.parser, value_index)))
+        } else {
+            None
+        }
     }
 }
 
 impl<'a> JsonNode<'a> {
-    pub fn new<'b>(parser: &'b Parser) -> JsonNode<'b> {
+    pub fn new<'b>(parser: &'b JsonParser) -> JsonNode<'b> {
         JsonNode { parser, index: 0 }
     }
 
-    pub fn from_index<'b>(parser: &'b Parser, index: usize) -> JsonNode<'b> {
+    pub fn from_index<'b>(parser: &'b JsonParser, index: usize) -> JsonNode<'b> {
         JsonNode { parser, index }
     }
 
-    fn token(&self) -> &JsonToken {
+    pub fn token(&self) -> &JsonToken {
         &self.parser.tokens[self.index]
     }
 
-    fn slice(&self) -> &str {
+    pub fn value(&self) -> &JsonValue {
+        match self.token() {
+            JsonToken::Value(i, value) => value,
+            _ => panic!(),
+        }
+    }
+
+    pub fn slice(&self) -> &str {
         self.parser.get_slice(self.index)
     }
 
-    fn get(&self, index: usize) -> JsonNodeResult {
+    pub fn get_int(&self) -> Option<i64> {
+        self.parser.get_int(self.index)
+    }
+
+    pub fn get_string(&self) -> Option<&str> {
+        self.parser.get_string(self.index)
+    }
+
+    pub fn get(&self, index: usize) -> JsonNodeResult {
         let token = self.token();
         match token {
             JsonToken::Value(_, value) => {
@@ -86,7 +102,11 @@ impl<'a> JsonNode<'a> {
         }
     }
 
-    fn key(&self, target: &str) -> JsonNodeResult {
+    pub fn array_len(&self) -> Option<usize> {
+        None
+    }
+
+    pub fn key(&self, target: &str) -> JsonNodeResult {
         let token = self.token();
         match token {
             JsonToken::Value(_, value) => match value {
@@ -140,49 +160,50 @@ impl<'a> JsonNode<'a> {
             end: self.index + 1,
         }
     }
+
+    pub fn object_len(&self) -> usize {
+        0
+    }
 }
 
 #[test]
 fn slice_tests() {
-    assert_eq!("1", JsonNode::new(&Parser::process(" 1")).slice());
+    assert_eq!("1", JsonNode::new(&JsonParser::process(" 1")).slice());
     assert_eq!(
         r##""hoge""##,
-        JsonNode::new(&Parser::process(r##" "hoge" "##)).slice()
+        JsonNode::new(&JsonParser::process(r##" "hoge" "##)).slice()
     );
     assert_eq!(
         "[1, 2, 3]",
-        JsonNode::new(&Parser::process(" [1, 2, 3]")).slice()
+        JsonNode::new(&JsonParser::process(" [1, 2, 3]")).slice()
     );
     assert_eq!(
         r##"{"key": true}"##,
-        JsonNode::new(&Parser::process(r##" {"key": true}"##)).slice()
+        JsonNode::new(&JsonParser::process(r##" {"key": true}"##)).slice()
     );
 }
 
-fn _node_tests<'a>() -> JsonNodeResult<'a> {
-    {
-        let parser = Parser::process("[1, 2, 3]");
-        let array = JsonNode::new(&parser);
-        assert_eq!("1", array.get(0)?.slice());
-        assert_eq!("2", array.get(1)?.slice());
-        assert_eq!("3", array.get(2)?.slice());
-    }
-
-    {
-        let parser = Parser::process(r##"{ "key": true }"##);
-        let obj = JsonNode::new(&parser);
-        assert_eq!("true", obj.key("key")?.slice());
-    }
-
-    {
-        let parser = Parser::process(r##"{ "key": {"key2": true }}"##);
-        let obj = JsonNode::new(&parser);
-        assert_eq!("true", obj.key("key")?.key("key2")?.slice());
-    }
-
-    Err(JsonNodeError {})
-}
 #[test]
-fn node_tests() {
-    _node_tests();
+fn node_tests<'a>() {
+    {
+        let parser = JsonParser::process("[1, 2, 3]");
+        let array = JsonNode::new(&parser);
+
+        assert_eq!(Some(3), array.array_len());
+        assert_eq!(Some(1), array.get(0).unwrap().get_int());
+        assert_eq!(Some(2), array.get(1).unwrap().get_int());
+        assert_eq!(Some(3), array.get(2).unwrap().get_int());
+    }
+
+    {
+        let parser = JsonParser::process(r##"{ "key": true }"##);
+        let obj = JsonNode::new(&parser);
+        assert_eq!("true", obj.key("key").unwrap().slice());
+    }
+
+    {
+        let parser = JsonParser::process(r##"{ "key": {"key2": true }}"##);
+        let obj = JsonNode::new(&parser);
+        assert_eq!("true", obj.key("key").unwrap().key("key2").unwrap().slice());
+    }
 }
