@@ -76,6 +76,10 @@ impl<'a> JsonNode<'a> {
         self.parser.get_int(self.index)
     }
 
+    pub fn get_bool(&self) -> Option<bool> {
+        self.parser.get_bool(self.index)
+    }
+
     pub fn get_string(&self) -> Option<&str> {
         self.parser.get_string(self.index)
     }
@@ -104,6 +108,17 @@ impl<'a> JsonNode<'a> {
     }
 
     pub fn array_len(&self) -> Option<usize> {
+        let token = self.token();
+        match token.data {
+            JsonTokenData::Value(JsonValue::ArrayOpen(close_index)) => {
+                match self.parser.tokens[close_index].data {
+                    JsonTokenData::ArrayClose(count) => return Some(count),
+                    _ => (),
+                }
+            }
+            _ => (),
+        }
+
         None
     }
 
@@ -161,8 +176,19 @@ impl<'a> JsonNode<'a> {
         }
     }
 
-    pub fn object_len(&self) -> usize {
-        0
+    pub fn object_len(&self) -> Option<usize> {
+        let token = self.token();
+        match token.data {
+            JsonTokenData::Value(JsonValue::ObjectOpen(close_index)) => {
+                match self.parser.tokens[close_index].data {
+                    JsonTokenData::ObjectClose(count) => return Some(count),
+                    _ => (),
+                }
+            }
+            _ => (),
+        }
+
+        None
     }
 }
 
@@ -198,12 +224,18 @@ fn node_tests<'a>() {
     {
         let parser = JsonParser::process(r##"{ "key": true }"##);
         let obj = JsonNode::new(&parser);
-        assert_eq!("true", obj.key("key").unwrap().slice());
+        assert_eq!(Some(1), obj.object_len());
+        assert_eq!(Some(true), obj.key("key").unwrap().get_bool());
     }
 
     {
-        let parser = JsonParser::process(r##"{ "key": {"key2": true }}"##);
+        let parser = JsonParser::process(r##"{ "key1": {"key2": "value12" }}"##);
         let obj = JsonNode::new(&parser);
-        assert_eq!("true", obj.key("key").unwrap().key("key2").unwrap().slice());
+        assert_eq!(Some(1), obj.object_len());
+        assert_eq!(Some(1), obj.key("key1").unwrap().object_len());
+        assert_eq!(
+            Some("value12"),
+            obj.key("key1").unwrap().key("key2").unwrap().get_string()
+        );
     }
 }

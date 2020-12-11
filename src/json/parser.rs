@@ -59,9 +59,9 @@ pub struct JsonToken {
     pub data: JsonTokenData,
 }
 
-impl fmt::Display for JsonToken {
+impl fmt::Display for JsonTokenData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.data {
+        match self {
             JsonTokenData::Colon() => write!(f, ":"),
             JsonTokenData::Comma() => write!(f, ","),
             JsonTokenData::ArrayClose(_) => write!(f, "]"),
@@ -225,35 +225,46 @@ impl JsonToken {
 }
 
 impl<'a> JsonParser<'a> {
-    fn get_array_token(&mut self, it: &mut PeekIt) -> ParseResult {
+    fn get_array_token(&mut self, it: &mut PeekIt) -> Result<usize, ParseError> {
         {
-            // value or close
+            // close or key
             let token = self.parse(it)?;
             match token.data {
-                JsonTokenData::ArrayClose(_) => return Ok(token),
+                JsonTokenData::ArrayClose(_) => return Ok(0),
                 JsonTokenData::ObjectClose(_) => return Err(ParseError::Unknown(token.start, '}')),
                 JsonTokenData::Value(_) => (), // continue
                 JsonTokenData::Comma() => return Err(ParseError::Unknown(token.start, ',')),
                 JsonTokenData::Colon() => return Err(ParseError::Unknown(token.start, ':')),
-            }
+            };
         }
 
+        let mut count = 1;
         loop {
             // comma or close
             {
                 let token = self.parse(it)?;
                 match token.data {
-                    JsonTokenData::ArrayClose(_) => return Ok(token),
+                    JsonTokenData::ArrayClose(_) => return Ok(count),
                     JsonTokenData::ObjectClose(_) => {
                         return Err(ParseError::Unknown(token.start, '}'))
                     }
                     JsonTokenData::Value(value) => {
                         return Err(ParseError::Value(token.start, value))
                     }
-                    JsonTokenData::Comma() => (), // continue
+                    JsonTokenData::Comma() => {
+                        if count > 0 {
+                            () // continue
+                        } else {
+                            return Err(ParseError::Unknown(token.start, ','));
+                        }
+                    }
                     JsonTokenData::Colon() => return Err(ParseError::Unknown(token.start, ':')),
                 };
             }
+
+            // increment
+            count += 1;
+
             // must value
             {
                 let token = self.parse(it)?;
@@ -297,40 +308,41 @@ impl<'a> JsonParser<'a> {
         }
     }
 
-    fn get_object_token(&mut self, it: &mut PeekIt) -> ParseResult {
+    fn get_object_token(&mut self, it: &mut PeekIt) -> Result<usize, ParseError> {
         {
-            // key or close
-            {
-                let token = self.parse(it)?;
-                match token.data {
-                    JsonTokenData::ArrayClose(_) => {
-                        return Err(ParseError::Unknown(token.start, ']'))
-                    }
-                    JsonTokenData::ObjectClose(_) => return Ok(token),
-                    JsonTokenData::Value(_) => (), // continue
-                    JsonTokenData::Comma() => return Err(ParseError::Unknown(token.start, ',')),
-                    JsonTokenData::Colon() => return Err(ParseError::Unknown(token.start, ':')),
-                };
-            }
+            // close or key
+            let token = self.parse(it)?;
+            match token.data {
+                JsonTokenData::ArrayClose(_) => return Err(ParseError::Unknown(token.start, ']')),
+                JsonTokenData::ObjectClose(_) => return Ok(0),
+                JsonTokenData::Value(_) => (), // continue
+                JsonTokenData::Comma() => return Err(ParseError::Unknown(token.start, ',')),
+                JsonTokenData::Colon() => return Err(ParseError::Unknown(token.start, ':')),
+            };
             self.colon_value(it)?;
         }
 
+        let mut count = 1;
         loop {
-            // camma or close
             {
+                // comma or close
                 let token = self.parse(it)?;
                 match token.data {
                     JsonTokenData::ArrayClose(_) => {
                         return Err(ParseError::Unknown(token.start, ']'))
                     }
-                    JsonTokenData::ObjectClose(_) => return Ok(token),
+                    JsonTokenData::ObjectClose(_) => return Ok(count),
                     JsonTokenData::Value(value) => {
                         return Err(ParseError::Value(token.start, value))
                     }
-                    JsonTokenData::Comma() => (), // continue
+                    JsonTokenData::Comma() => {
+                        () // continue
+                    }
                     JsonTokenData::Colon() => return Err(ParseError::Unknown(token.start, ':')),
                 };
             }
+            // increment
+            count += 1;
             // key
             {
                 let token = self.parse(it)?;
@@ -388,20 +400,28 @@ impl<'a> JsonParser<'a> {
                     data: JsonTokenData::Comma(),
                 }),
                 '[' => {
-                    let index = self.tokens.len();
+                    // tmp open
+                    let open_index = self.tokens.len();
                     self.tokens.push(JsonToken {
                         start: i,
-                        data: JsonTokenData::Value(JsonValue::ArrayOpen(index + 1)),
+                        data: JsonTokenData::Value(JsonValue::ArrayOpen(open_index + 1)),
                     });
-                    self.get_array_token(it)?;
+                    let item_count = self.get_array_token(it)?;
+                    let close_index = self.tokens.len() - 1;
 
-                    // update close
-                    let end_index = self.tokens.len() - 1;
+                    // update open
                     let token = JsonToken {
                         start: i,
-                        data: JsonTokenData::Value(JsonValue::ArrayOpen(end_index)),
+                        data: JsonTokenData::Value(JsonValue::ArrayOpen(close_index)),
                     };
-                    self.tokens[index] = token;
+                    self.tokens[open_index] = token;
+
+                    // update close
+                    self.tokens[close_index] = JsonToken {
+                        start: self.tokens[close_index].start,
+                        data: JsonTokenData::ArrayClose(item_count),
+                    };
+
                     Ok(token)
                 }
                 ']' => {
@@ -417,26 +437,34 @@ impl<'a> JsonParser<'a> {
                     data: JsonTokenData::Colon(),
                 }),
                 '{' => {
-                    let index = self.tokens.len();
+                    // tmp open
+                    let open_index = self.tokens.len();
                     self.tokens.push(JsonToken {
                         start: i,
-                        data: JsonTokenData::Value(JsonValue::ObjectOpen(index + 1)),
+                        data: JsonTokenData::Value(JsonValue::ObjectOpen(open_index + 1)),
                     });
-                    self.get_object_token(it)?;
+                    let item_count = self.get_object_token(it)?;
+                    let close_index = self.tokens.len() - 1;
 
-                    // update close
-                    let end_index = self.tokens.len() - 1;
+                    // update open
                     let token = JsonToken {
                         start: i,
-                        data: JsonTokenData::Value(JsonValue::ObjectOpen(end_index)),
+                        data: JsonTokenData::Value(JsonValue::ObjectOpen(close_index)),
                     };
-                    self.tokens[index] = token;
+                    self.tokens[open_index] = token;
+
+                    // update close
+                    self.tokens[close_index] = JsonToken {
+                        start: self.tokens[close_index].start,
+                        data: JsonTokenData::ObjectClose(item_count),
+                    };
+
                     Ok(token)
                 }
                 '}' => {
                     let token = JsonToken {
                         start: i,
-                        data: JsonTokenData::ObjectClose(i),
+                        data: JsonTokenData::ObjectClose(0),
                     };
                     self.tokens.push(token);
                     Ok(token)
@@ -528,6 +556,18 @@ impl<'a> JsonParser<'a> {
                     None
                 }
             }
+            _ => None,
+        }
+    }
+
+    pub fn get_bool(&self, index: usize) -> Option<bool> {
+        let token = &self.tokens[index];
+        match token.data {
+            JsonTokenData::Value(value) => match value {
+                JsonValue::True() => Some(true),
+                JsonValue::False() => Some(false),
+                _ => None,
+            },
             _ => None,
         }
     }
