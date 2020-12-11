@@ -36,8 +36,8 @@ impl<'a> Iterator for JsonObjectIter<'a> {
         }
 
         let key_index = self.current;
-        let value_index = self.parser.next_sibling(key_index);
-        self.current = self.parser.next_sibling(value_index);
+        let value_index = self.parser.next_sibling_index(key_index);
+        self.current = self.parser.next_sibling_index(value_index);
 
         if let Some(key) = self.parser.get_string(key_index) {
             Some((key, JsonNode::from_index(self.parser, value_index)))
@@ -60,9 +60,10 @@ impl<'a> JsonNode<'a> {
         &self.parser.tokens[self.index]
     }
 
-    pub fn value(&self) -> &JsonValue {
-        match self.token() {
-            JsonToken::Value(i, value) => value,
+    pub fn value(&self) -> JsonValue {
+        let token = self.token();
+        match token.data {
+            JsonTokenData::Value(value) => value,
             _ => panic!(),
         }
     }
@@ -81,14 +82,14 @@ impl<'a> JsonNode<'a> {
 
     pub fn get(&self, index: usize) -> JsonNodeResult {
         let token = self.token();
-        match token {
-            JsonToken::Value(_, value) => {
+        match token.data {
+            JsonTokenData::Value(value) => {
                 match value {
                     JsonValue::ArrayOpen(_) => {
                         // let close = self.parser.tokens[*close_index];
                         let mut current = self.index + 1;
                         for _ in 0..index {
-                            current = self.parser.next_sibling(current);
+                            current = self.parser.next_sibling_index(current);
                         }
                         Ok(JsonNode {
                             parser: self.parser,
@@ -108,14 +109,14 @@ impl<'a> JsonNode<'a> {
 
     pub fn key(&self, target: &str) -> JsonNodeResult {
         let token = self.token();
-        match token {
-            JsonToken::Value(_, value) => match value {
+        match token.data {
+            JsonTokenData::Value(value) => match value {
                 JsonValue::ObjectOpen(close_index) => {
                     let mut current = self.index + 1;
-                    while current < *close_index {
+                    while current < close_index {
                         // key
                         let key_index = current;
-                        let value_index = self.parser.next_sibling(key_index);
+                        let value_index = self.parser.next_sibling_index(key_index);
 
                         // value
                         let key = self.parser.get_slice(key_index);
@@ -126,7 +127,7 @@ impl<'a> JsonNode<'a> {
                             });
                         }
 
-                        current = self.parser.next_sibling(value_index);
+                        current = self.parser.next_sibling_index(value_index);
                     }
                     // not found
                     Err(JsonNodeError {})
@@ -139,14 +140,13 @@ impl<'a> JsonNode<'a> {
 
     pub fn object_iter(&self) -> JsonObjectIter {
         let token = self.token();
-
-        match token {
-            JsonToken::Value(_, value) => match value {
+        match token.data {
+            JsonTokenData::Value(value) => match value {
                 JsonValue::ObjectOpen(close_index) => {
                     return JsonObjectIter {
                         parser: self.parser,
                         current: self.index + 1,
-                        end: *close_index,
+                        end: close_index,
                     }
                 }
                 _ => (),
