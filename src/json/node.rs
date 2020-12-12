@@ -1,5 +1,6 @@
 use super::parser::*;
 
+#[derive(Clone, Copy)]
 pub struct JsonNode<'a> {
     parser: &'a JsonParser<'a>,
     index: usize,
@@ -13,7 +14,7 @@ impl<'a> std::fmt::Display for JsonNode<'a> {
 
 #[derive(Debug, Clone)]
 pub struct JsonNodeError {}
-type JsonNodeResult<'a> = Result<JsonNode<'a>, JsonNodeError>;
+pub type JsonNodeResult<'a> = Result<JsonNode<'a>, JsonNodeError>;
 
 pub struct JsonArrayIter<'a> {
     parser: &'a JsonParser<'a>,
@@ -84,7 +85,7 @@ impl<'a> JsonNode<'a> {
         self.parser.get_string(self.index)
     }
 
-    pub fn get(&self, index: usize) -> JsonNodeResult {
+    pub fn get(&self, index: usize) -> JsonNodeResult<'a> {
         let token = self.token();
         match token.data {
             JsonTokenData::Value(value) => {
@@ -122,7 +123,7 @@ impl<'a> JsonNode<'a> {
         None
     }
 
-    pub fn key(&self, target: &str) -> JsonNodeResult {
+    pub fn key(&self, target: &str) -> JsonNodeResult<'a> {
         let token = self.token();
         match token.data {
             JsonTokenData::Value(value) => match value {
